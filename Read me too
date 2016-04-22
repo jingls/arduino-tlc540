@@ -1,0 +1,8 @@
+In order to use this code you also need the library SimpleTimer:
+
+* SimpleTimer - A timer library for Arduino.
+ * Author: mromani@ottotecnica.com
+ * Copyright (c) 2010 OTTOTECNICA Italy
+ 
+ 
+ Also see the schematics file on how to connect Arduino with the TLC540.
