@@ -1,10 +1,9 @@
 
-
 #include "SimpleTimer.h"
 SimpleTimer timer;
 
 // debug variables
-#define MSGSIZE 900
+#define MSGSIZE 1
 static unsigned int rising = 0; // the number of rising edges
 static unsigned int falling = 0; // the number of falling edges
 static unsigned int timerEventNumber;
@@ -15,18 +14,24 @@ static int mystate = 0;
 static bool clkSig = false;
 static bool readFinished = false;
 static uint8_t counter1 = 0, counter3 = 0, counter5 = 0;
+static uint8_t input; // used in the state machine function timerEvent
 static uint8_t bitpos, readpos; // readpos: bit position for reading from pin
-static uint8_t input, lastInput; // adc input, 0 to 10 (11 inputs)
 static uint8_t val; // receives one bit from the digital pin
 static uint8_t adcresult; // holds the 8 bit result
 static uint8_t teststate = 4;
+static uint8_t cur_CS = 0; // the current active chip
 
 // pins
+const byte ANALOG_PINS[] = { A0, A1, A2, A3, A4, A5 }; // we also use these pins as voltage inputs
 static uint8_t   SYSCLK = 13;
 static uint8_t   IOCLK = 12;
 static uint8_t   ADDR = 8;
 static uint8_t   DATA = 7;
-static uint8_t   CS = 4;
+static uint8_t   CS1 = 4; // CS of the chip 1
+static uint8_t   CS2 = 3; // CS of the chip 2
+
+// number of inputs in each chip (0 to 10) (11 inputs)
+#define INPUTS 11
 
 void raiseclock() {
   rising++;
@@ -40,6 +45,7 @@ void lowerclock() {
   digitalWrite(IOCLK, LOW);
 }
 
+// this is the state machine
 void timerEvent() {
   timerEventNumber++;
   //Serial.print(" 0."); Serial.print(timerEventNumber);
@@ -57,7 +63,7 @@ void timerEvent() {
     case 0:
       if (clkSig == true) {
         //Serial.print(" 3.");
-        digitalWrite(CS, LOW);
+        digitalWrite(cur_CS, LOW);
         counter1 = 0;
         mystate = 1;
       }
@@ -115,7 +121,7 @@ void timerEvent() {
     case 4:
       if (clkSig == false) {
         //Serial.print(" 12.");
-        digitalWrite(CS, HIGH);
+        digitalWrite(cur_CS, HIGH);
         counter5 = 0;
         mystate = 5;
       }
@@ -163,37 +169,81 @@ uint8_t readTimer(uint8_t inputNumber) {
   return adcresult;
 }
 
+void select_chip(int CS) {
+
+  // disable both chips
+  digitalWrite(CS1, HIGH);
+  digitalWrite(CS2, HIGH);
+
+  for (int i = 0; i < 3; i++) {
+    lowerclock();
+    delayMicroseconds(50);
+    raiseclock();
+    delayMicroseconds(50);
+  }
+  lowerclock();
+  
+  digitalWrite(CS, LOW); // enable chip
+
+  // spend 3 clock cycles
+  for (int i = 0; i < 3; i++) {
+    lowerclock();
+    delayMicroseconds(50);
+    raiseclock();
+    delayMicroseconds(50);
+  }
+  lowerclock();
+}
+
 void setup() {
   
   pinMode(SYSCLK, OUTPUT);
   pinMode(IOCLK, OUTPUT);
   pinMode(ADDR, OUTPUT);
   pinMode(DATA, INPUT);
-  pinMode(CS, OUTPUT);
+  pinMode(CS1, OUTPUT);
+  pinMode(CS2, OUTPUT);
+
+  cur_CS = CS1;
+  select_chip(cur_CS);
   
   Serial.begin(9600);
 }
 
-#define INPUTS 11
-int count = 0;
+uint8_t cur_input, lastInput; // current input, will appear in next reading cycle. lastInput will appear in this reading cycle
 uint8_t ins[INPUTS];
 
 void loop() {
-  input = count++ % INPUTS;
   
-  if (lastInput == 0) {
-    for (int i = 0; i < INPUTS; i++) {
-      Serial.print(ins[i]);
-      Serial.print("\t");
+  if (cur_CS == CS1) {
+    cur_CS = CS2;
+  } else {
+    cur_CS = CS1;
+    for (int i = 0; i < 6; i++) { // show the voltages at the analog inputs A0 to A5
+      Serial.print(analogRead(ANALOG_PINS[i]));
+      Serial.print(" ");
     }
+    Serial.print(millis()/1000.0); // last column is time in seconds
     Serial.print("\r\n");
   }
+  select_chip(cur_CS);
 
-  uint8_t val = readTimer(input);
-  ins[lastInput] = val;
-  // float voltage = (val/255.0f)*5; //255 because 8 bits, 5 is VCC = 5 V
-  delay(10); // this gives more or less 5 samples per second
-  lastInput = input;
+  for (int i = 0; i < (INPUTS + 1);  i++) { // we read one value more than the number of inputs, because the chip returns the previous input, not the current one
+    cur_input = i % INPUTS; // i goes until INPUTS, but cur_input goes until (INPUTS - 1) and then 0
+    uint8_t val = readTimer(cur_input);
+    ins[lastInput] = val;
+    lastInput = i;
+  }
+  
+  Serial.print(cur_CS);
+  Serial.print(" ");
+  
+  for (int i = 0; i < INPUTS; i++) {
+    Serial.print(ins[i]);
+    Serial.print(" ");
+  }
 }
+
+
 
 
